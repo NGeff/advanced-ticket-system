@@ -36,17 +36,17 @@ client.i18n = i18n;
 
 async function loadCommands() {
   const commandFiles = readdirSync(join(__dirname, 'commands')).filter(f => f.endsWith('.js'));
-  
+
   for (const file of commandFiles) {
     try {
       const commandModule = await import(`./commands/${file}`);
-      
+
       if (commandModule.default) {
         if (commandModule.default.data && commandModule.default.execute) {
           client.commands.set(commandModule.default.data.name, commandModule.default);
           logger.debug('LOADER', `Comando carregado: ${commandModule.default.data.name}`);
         } else if (typeof commandModule.default === 'object') {
-          for (const [key, command] of Object.entries(commandModule.default)) {
+          for (const [, command] of Object.entries(commandModule.default)) {
             if (command.data && command.execute) {
               client.commands.set(command.data.name, command);
               logger.debug('LOADER', `Comando carregado: ${command.data.name}`);
@@ -54,9 +54,9 @@ async function loadCommands() {
           }
         }
       }
-      
+
       for (const [key, value] of Object.entries(commandModule)) {
-        if (key !== 'default' && value.data && value.execute) {
+        if (key !== 'default' && value?.data && value?.execute) {
           client.commands.set(value.data.name, value);
           logger.debug('LOADER', `Comando carregado: ${value.data.name}`);
         }
@@ -65,18 +65,18 @@ async function loadCommands() {
       logger.error('LOADER', `Erro ao carregar comando ${file}`, { error: error.message });
     }
   }
-  
+
   logger.info('LOADER', `${client.commands.size} comandos carregados`);
 }
 
 async function loadEvents() {
   const eventFiles = readdirSync(join(__dirname, 'events')).filter(f => f.endsWith('.js'));
-  
+
   for (const file of eventFiles) {
     try {
       const event = await import(`./events/${file}`);
       const eventName = file.replace('.js', '');
-      
+
       if (event.default?.execute) {
         if (event.default.once) {
           client.once(eventName, (...args) => event.default.execute(client, ...args));
@@ -89,22 +89,22 @@ async function loadEvents() {
       logger.error('LOADER', `Erro ao carregar evento ${file}`, { error: error.message });
     }
   }
-  
+
   logger.info('LOADER', `${eventFiles.length} eventos carregados`);
 }
 
 async function registerCommands() {
   const rest = new REST().setToken(process.env.BOT_TOKEN);
   const commands = Array.from(client.commands.values()).map(cmd => cmd.data.toJSON());
-  
+
   try {
     logger.info('DEPLOY', 'Registrando comandos slash...');
-    
+
     await rest.put(
       Routes.applicationCommands(process.env.CLIENT_ID),
       { body: commands }
     );
-    
+
     logger.info('DEPLOY', `${commands.length} comandos registrados com sucesso`);
   } catch (error) {
     logger.error('DEPLOY', 'Falha ao registrar comandos', { error: error.message });
@@ -112,18 +112,25 @@ async function registerCommands() {
   }
 }
 
+client.once('ready', async () => {
+  try {
+    await registerCommands();
+  } catch (error) {
+    logger.error('STARTUP', 'Falha ao registrar comandos após ready', { error: error.stack });
+  }
+});
+
 async function startBot() {
   try {
     logger.info('STARTUP', '🚀 Iniciando bot...');
-    
+
     await db.ensureDirectories();
+    db.loadData();
+
     await loadCommands();
     await loadEvents();
-    
+
     await client.login(process.env.BOT_TOKEN);
-    
-    await registerCommands();
-    
   } catch (error) {
     logger.error('STARTUP', 'Falha ao iniciar bot', { error: error.stack });
     process.exit(1);

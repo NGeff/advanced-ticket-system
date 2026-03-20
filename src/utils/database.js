@@ -14,13 +14,12 @@ export class Database {
     this.transcripts = new Map();
     this.translations = new Map();
     this.cache = new Map();
-    
+    this._ticketCounters = new Map();
+
     this.guildsFile = join(DATA_DIR, 'guilds.json');
     this.ticketsFile = join(DATA_DIR, 'tickets.json');
     this.transcriptsFile = join(DATA_DIR, 'transcripts.json');
     this.translationsFile = join(DATA_DIR, 'translations.json');
-    
-    this.loadData();
   }
 
   async ensureDirectories() {
@@ -43,6 +42,7 @@ export class Database {
       if (existsSync(this.ticketsFile)) {
         const data = JSON.parse(readFileSync(this.ticketsFile, 'utf-8'));
         this.tickets = new Map(Object.entries(data));
+        this._rebuildCounters();
       }
     } catch (error) {
       console.error('Falha ao carregar tickets:', error.message);
@@ -64,6 +64,17 @@ export class Database {
       }
     } catch (error) {
       console.error('Falha ao carregar traduções:', error.message);
+    }
+  }
+
+  _rebuildCounters() {
+    for (const [, ticket] of this.tickets.entries()) {
+      if (!ticket.guildId || !ticket.ticketId) continue;
+      const num = parseInt(ticket.ticketId.replace('TKT-', ''), 10);
+      if (!isNaN(num)) {
+        const current = this._ticketCounters.get(ticket.guildId) || 0;
+        if (num > current) this._ticketCounters.set(ticket.guildId, num);
+      }
     }
   }
 
@@ -162,9 +173,9 @@ export class Database {
   }
 
   async generateTicketId(guildId) {
-    const tickets = await this.getAllTickets(guildId);
-    const count = tickets.length + 1;
-    return `TKT-${String(count).padStart(4, '0')}`;
+    const next = (this._ticketCounters.get(guildId) || 0) + 1;
+    this._ticketCounters.set(guildId, next);
+    return `TKT-${String(next).padStart(4, '0')}`;
   }
 
   getTicketKey(guildId, ticketId) {
@@ -183,7 +194,7 @@ export class Database {
   }
 
   async getTicketByChannel(guildId, channelId) {
-    for (const [key, ticket] of this.tickets.entries()) {
+    for (const [, ticket] of this.tickets.entries()) {
       if (ticket.guildId === guildId && ticket.channelId === channelId) {
         return ticket;
       }
@@ -193,13 +204,11 @@ export class Database {
 
   async getAllTickets(guildId, filters = {}) {
     const tickets = [];
-    for (const [key, ticket] of this.tickets.entries()) {
+    for (const [, ticket] of this.tickets.entries()) {
       if (ticket.guildId !== guildId) continue;
-      
       if (filters.status && ticket.status !== filters.status) continue;
       if (filters.authorId && ticket.authorId !== filters.authorId) continue;
       if (filters.type && ticket.type !== filters.type) continue;
-      
       tickets.push(ticket);
     }
     return tickets;
@@ -222,7 +231,7 @@ export class Database {
     const now = Date.now();
     const today = new Date().setHours(0, 0, 0, 0);
     const weekAgo = now - (7 * 24 * 60 * 60 * 1000);
-    
+
     const stats = {
       total: tickets.length,
       open: tickets.filter(t => t.status === 'open').length,
@@ -233,13 +242,13 @@ export class Database {
       avgResponseTime: 15,
       byType: {}
     };
-    
+
     tickets.forEach(t => {
       if (t.type) {
         stats.byType[t.type] = (stats.byType[t.type] || 0) + 1;
       }
     });
-    
+
     return stats;
   }
 
